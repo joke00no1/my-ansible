@@ -1,0 +1,89 @@
+- name: Setup for nfs server
+  hosts: localhost #<= 타겟 : 여기에다가 nfs 서버를 
+  
+  tasks:
+    - name: make nfs_shared directory
+      file: 
+        path: /root/nfs_shared #<=여기를 공유폴더로 이용하겠다
+        state: directory
+        mode: 0777             #<= chmod 권한 777 을 주겠다 
+
+#file 은 보통 디렉토리 만들때 
+#lineinfile 은 이 라인을 집어 넣어서 만들어라 
+#==> path 경로에다가 line 을 입력 시켜라 (네트워드 주소 범위)
+# ip a
+
+    - name: configure /etc/exports #EC2 폴더 밑에 접근제어 설정을 해야함 
+      lineinfile:
+        path: /etc/exports #이 경로에 
+        line: /root/nfs_shared 192.168.0.0/20(rw,sync)
+
+#yum install nfs-utils 와 같다
+
+    - name: Install NFS
+      yum:
+        name: nfs-utils
+        state: present
+
+    - name: nfs service start
+      service:
+        name: nfs-server
+        state: restarted #<=이미 설치가 되어있다해도 리스타트 
+        enabled: yes #<=nfs-server 가 자동으로 실행되도록 enabled 옵션
+
+##################################################
+#2번째 플레이북 ansible에 centos인벤토리에 있는 대상으로 마운트 
+##################################################
+- name: Setup for nfs clients
+  hosts: centos #<=centos인벤토리에 있는 대상으로 
+  tasks:
+#1번 플레이북에 있는것과 nfs-shared 폴더와 연결할 nfs 폴더를 만든다.
+    - name: make nfs_client directory
+      file:
+        path: /root/nfs
+        state: directory
+#nfs utils 설치
+    - name: Install NFS
+      yum:
+        name: nfs-utils
+        state: present
+#마운트 모듈을 통해 현재 자기가 가지고 있는 폴더와, nfs 서버(ansible) 의 아이피와 연결
+#src 의 앤서블서버의 아이피 확인은 ip a 치면 privateIps 부분을 넣어주면 됨 
+
+    - name: mount point directory as client
+      mount:
+        path: /root/nfs
+        src: 172.31.7.19:/root/nfs_shared
+        fstype: nfs
+        state: mounted
+
+#### 3번째 플레이북 (우분투)
+- name: Setup for nfs clients U
+  hosts: ubuntu
+  
+  tasks:
+    - name: make nfs_client directory
+      file:
+        path: /root/nfs
+        state: directory
+
+#nfs 를 가져오게될 repository 의 정보를 선언하기 위해서 update 를 해줌
+# update_cache => apt update 
+    - name: Install NFS-U
+      apt:
+        pkg: nfs-common
+        state: present
+        update_cache: yes
+
+    - name: mount point directory as client
+      mount:
+        path: /root/nfs
+        src: 172.31.7.19:/root/nfs_shared #ansible 의 private ip 를 적어준다 
+        fstype: nfs #mount type 
+#ubuntu 의 경우 opts: nfs버전을 명시를 꼭 해줘야함 opts: nfsvers=3
+        opts: nfsvers=3
+        state: mounted
+
+#실행시 EC2 > 보안그룹 > 인바운드 규칙편집 > 모든트래픽 > CIDR 블록 - 보안그룹 - 출발지 : my-sg-web (현재내보안그룹) 
+# ansible-playbook nfs.yml -k
+

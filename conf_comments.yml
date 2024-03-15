@@ -1,0 +1,55 @@
+#--- 변수, 팩트를 활용한 플레이북 동적 구성
+# ls /root/.ssh 에 known_hosts 확인 가능
+# known_hosts 작성 하는 플레이북
+# cat /etc/ansible/hosts 에서 정보를 얻어옮 
+# /etc/ansible/hosts 파일에
+# 172.31.37.51 ansible.python_interpreter=/usr/bin/python3 추가
+
+
+# vi conf.yml
+#첫번째 플레이 : known_host를 만듬 ansible 의 접속 대상이 되는 만들 곳을 정의 
+- name: Create known_hosts between server and nodes
+  hosts: all #<=모든 호스트를 대상으로
+  connection: local #로컬(해당실행하는곳)에 만들겠다 
+  serial: 1
+  gather_facts: no #facts 변수를 수집 하겠냐는 옵션 (default : yes ) 플레이 구동중에 시간 소요에 영향 
+  
+  tasks:
+    - name: ssh-keyscan for known_hosts file
+#command 모듈사용 : 절대경로 에 keyscan 을 이용해 (-t: 타입 , 방식: ecdsa ) "{{ ansible_host }}" 는 변수명(매직변수)
+# 매직변수는 앤서블에서 특별히 선언하지 않아도, 기본적으로 사용할 수 있는 변수들이 존재합니다. ansible_host를 호출하여 #/etc/ansible/hosts에 있는 노드들의 값 중에 플레이북에서 호출한 노드들에 대한 정보를 자동으로 변수로 입력받을 것입니다.
+      command: /usr/bin/ssh-keyscan -t ecdsa {{ ansible_host }} 
+      register: keyscan
+
+    - name: input key
+      lineinfile:      
+        path: ~/.ssh/known_hosts #known_hosts 파일을 저장할 곳 ~/.ssh/ 와 = /root/.ssh/ 는 같은 말임  (~/ = /root/)
+        line: "{{ item }}" #반복문 with_items 을 이 라인에 저장
+        create: yes     
+      with_items:
+        - "{{ keyscan.stdout_lines }}" #키스캔 표준출력된 부분
+
+## 2번째 플레이북 
+- name: Create authorized_keys between server and nodes
+  hosts: all
+  connection: local
+  gather_facts: no
+  vars:
+    ansible_password: 패스워드
+
+  tasks:
+#비대칭키 public 과 private 키를 만듬
+#private key
+    - name: ssh-keygen for authorized_keys file
+      command: "ssh-keygen -b 2048 -t rsa -f ~/.ssh/id_rsa -q -N ''"
+      ignore_errors: yes
+      run_once: true
+
+#public key
+    - name: input key for each node
+      connection: ssh
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+

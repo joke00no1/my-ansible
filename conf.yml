@@ -1,0 +1,41 @@
+#--- 변수, 팩트를 활용한 플레이북 동적 구성
+# vi conf.yml
+- name: Create known_hosts between server and nodes
+  hosts: all
+  connection: local
+  serial: 1
+  gather_facts: no
+  
+  tasks:
+    - name: ssh-keyscan for known_hosts file
+      command: /usr/bin/ssh-keyscan -t ecdsa {{ ansible_host }} 
+      register: keyscan
+
+    - name: input key
+      lineinfile:      
+        path: ~/.ssh/known_hosts
+        line: "{{ item }}"
+        create: yes     
+      with_items:
+        - "{{ keyscan.stdout_lines }}"
+
+- name: Create authorized_keys between server and nodes
+  hosts: all
+  connection: local
+  gather_facts: no
+  vars:
+    ansible_password: 패스워드
+
+  tasks:
+    - name: ssh-keygen for authorized_keys file
+      command: "ssh-keygen -b 2048 -t rsa -f ~/.ssh/id_rsa -q -N ''"
+      ignore_errors: yes
+      run_once: true
+
+    - name: input key for each node
+      connection: ssh
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
